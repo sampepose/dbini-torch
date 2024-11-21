@@ -1,0 +1,114 @@
+[build-system]
+requires = ["flit_core >=3.2,<4.0.0"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "dbini-torch"
+authors = [{ name = "Sam Pepose", email = "sampepose@gmail.com" }]
+description = "PyTorch optimized bilateral normal integration"
+readme = "README.md"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.10.1"
+dynamic = ["version"]
+dependencies = ["torch"]
+
+[project.scripts]
+flit = "flit:main"
+
+[project.optional-dependencies]
+dev = ["flit >=3.2.0,<4.0.0", "ruff"]
+doc = ["sphinx >=5.1.1,<9.0.0", "sphinx-rtd-theme"]
+test = [
+    "bandit[toml]",
+    "check-manifest",
+    "pre-commit",
+    "pytest-cov",
+    "pytest-mock",
+    "pytest-runner",
+    "pytest",
+    "pytest-github-actions-annotate-failures",
+    "shellcheck-py",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+indent-width = 4
+
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 80
+
+[project.urls]
+Documentation = "https://github.com/sampepose/dbini-torch/tree/main#readme"
+Source = "https://github.com/sampepose/dbini-torch"
+Issues = "https://github.com/sampepose/dbini-torch/issues"
+
+[tool.flit.module]
+name = "dbini_torch"
+
+[tool.flit.sdist]
+exclude = [
+    ".github/",
+    ".pytest_cache/",
+    "env/",
+    ".env/",
+    ".pypirc",
+    ".gitattributes",
+    ".devcontainer/",
+    "docs/generated/",
+    "docs/_build/",
+    "tests/",
+    ".flake8",
+    ".gitignore",
+    ".pre-commit-config.yaml",
+    "CHANGELOG.md",
+    "Makefile",
+    ".lcov.info",
+    ".coverage",
+]
+
+
+[tool.bandit]
+exclude_dirs = ["build", "dist", "tests", "scripts"]
+number = 4
+recursive = true
+targets = "src"
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+fail_under = 100
+
+[tool.pyright]
+include = ["src"]
+exclude = ["**/node_modules", "**/__pycache__"]
+
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportRedeclaration = false
+
+pythonVersion = "3.10"
+
+executionEnvironments = [{ root = "src" }]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "integration: marks as integration test",
+    "notebooks: marks as notebook test",
+    "gpu: marks as gpu test",
+    "slow: marks tests as slow",
+    "unit: fast offline tests",
+]
