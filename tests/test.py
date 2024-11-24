@@ -1,5 +1,5 @@
-import torch
 import pytest
+import torch
 
 
 def test_move_mask():

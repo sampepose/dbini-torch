@@ -4,16 +4,19 @@ Each test compares outputs between the two implementations to ensure exact parit
 """
 
 import numpy as np
+import pytest
 import torch
 from xucao_bilateral_normal_integration.bilateral_normal_integration_numpy import (
+    generate_dx_dy as np_generate_dx_dy,
+)
+from xucao_bilateral_normal_integration.bilateral_normal_integration_numpy import (
+    move_bottom,
     move_left,
     move_right,
     move_top,
-    move_bottom,
-    generate_dx_dy as np_generate_dx_dy,
 )
-from dbini_torch.dbini import move_mask, generate_dx_dy
-import pytest
+
+from dbini_torch.dbini import generate_dx_dy, move_mask
 
 
 @pytest.mark.parametrize(
@@ -231,13 +234,20 @@ def test_generate_dx_dy_special_values(test_case):
         {pt_mat.to_dense().numpy()}
         """
 
-
-def test_bilateral_normal_integration_parity():
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_bilateral_normal_integration_parity(device):
     """Test bilateral_normal_integration against NumPy reference implementation"""
-    import cv2
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+    
     import os
+
+    import cv2
+    from xucao_bilateral_normal_integration.bilateral_normal_integration_numpy import (
+        bilateral_normal_integration as np_bni,
+    )
+
     from dbini_torch.dbini import bilateral_normal_integration as pt_bni
-    from xucao_bilateral_normal_integration.bilateral_normal_integration_numpy import bilateral_normal_integration as np_bni
 
     # Test parameters
     k = 2.0
@@ -246,60 +256,37 @@ def test_bilateral_normal_integration_parity():
 
     # Load test data
     data_dir = os.path.join(os.path.dirname(__file__), "data/person")
-    
+
     # Load inputs
     normal_map = cv2.cvtColor(
         cv2.imread(os.path.join(data_dir, "normal_map.png"), cv2.IMREAD_UNCHANGED),
-        cv2.COLOR_RGB2BGR
+        cv2.COLOR_RGB2BGR,
     )
     if normal_map.dtype == np.dtype(np.uint16):
-        normal_map = normal_map/65535 * 2 - 1
+        normal_map = normal_map / 65535 * 2 - 1
     else:
-        normal_map = normal_map/255 * 2 - 1
-    
-    mask = cv2.imread(os.path.join(data_dir, "mask.png"), cv2.IMREAD_GRAYSCALE).astype(bool)
-        
-    # Convert inputs to PyTorch tensors
-    pt_normal_map = torch.from_numpy(normal_map).permute(2, 0, 1)
-    pt_mask = torch.from_numpy(mask)
+        normal_map = normal_map / 255 * 2 - 1
 
-    print(normal_map.dtype)
+    mask = cv2.imread(os.path.join(data_dir, "mask.png"), cv2.IMREAD_GRAYSCALE).astype(bool)
+
+    # Convert inputs to PyTorch tensors
+    pt_normal_map = torch.from_numpy(normal_map).permute(2, 0, 1).to(device)
+    pt_mask = torch.from_numpy(mask).to(device)
 
     # Run PyTorch implementation
     pt_depth_map, pt_surface, pt_wu_map, pt_wv_map, pt_energy_list = pt_bni(
-        normal_map=pt_normal_map,
-        normal_mask=pt_mask,
-        k=k,
-        max_iter=max_iter,
-        tol=tol
+        normal_map=pt_normal_map, normal_mask=pt_mask, k=k, max_iter=max_iter, tol=tol
     )
 
     # Run NumPy implementation
     np_depth_map, np_surface, np_wu_map, np_wv_map, np_energy_list = np_bni(
-        normal_map=normal_map,
-        normal_mask=mask,
-        k=k,
-        max_iter=max_iter,
-        tol=tol
-    )
-
-    # Convert inputs to PyTorch tensors
-    pt_normal_map = torch.from_numpy(normal_map).permute(2, 0, 1)
-    pt_mask = torch.from_numpy(mask)
-
-    # Run PyTorch implementation
-    pt_depth_map, pt_surface, pt_wu_map, pt_wv_map, pt_energy_list = pt_bni(
-        normal_map=pt_normal_map,
-        normal_mask=pt_mask,
-        k=k,
-        max_iter=max_iter,
-        tol=tol
+        normal_map=normal_map, normal_mask=mask, k=k, max_iter=max_iter, tol=tol
     )
 
     # Convert PyTorch outputs to NumPy for comparison
-    pt_depth_map = pt_depth_map.squeeze().numpy()
-    pt_wu_map = pt_wu_map.squeeze().numpy()
-    pt_wv_map = pt_wv_map.squeeze().numpy()
+    pt_depth_map = pt_depth_map.cpu().squeeze().numpy()
+    pt_wu_map = pt_wu_map.cpu().squeeze().numpy()
+    pt_wv_map = pt_wv_map.cpu().squeeze().numpy()
     pt_energy_list = np.array(pt_energy_list)
 
     # Compare results
@@ -307,6 +294,8 @@ def test_bilateral_normal_integration_parity():
     assert np.allclose(np_energy_list, pt_energy_list, rtol=1e-5), "Energy list mismatch"
     assert np.allclose(np_wu_map, pt_wu_map, rtol=1e-5), "Wu map mismatch"
     assert np.allclose(np_wv_map, pt_wv_map, rtol=1e-5), "Wv map mismatch"
+    assert np.allclose(np_surface[0], pt_surface[0].cpu().numpy(), rtol=1e-5), "vertices mismatch"
+    assert np.allclose(np_surface[1], pt_surface[1].cpu().numpy(), rtol=1e-5), "faces mismatch"
 
 
 if __name__ == "__main__":

@@ -1,6 +1,10 @@
+import time
 from typing import Optional, Tuple
+
 import torch
 import torch.sparse as sparse
+from tqdm import tqdm
+
 from .solver import conjugate_gradient_solver
 
 
@@ -106,7 +110,10 @@ def create_sparse_derivative(
 
 
 def generate_dx_dy(
-    mask: torch.Tensor, nz_horizontal: torch.Tensor, nz_vertical: torch.Tensor, step_size: float = 1
+    mask: torch.Tensor,
+    nz_horizontal: torch.Tensor,
+    nz_vertical: torch.Tensor,
+    step_size: float = 1,
 ):
     """
     Generate sparse derivative matrices for bilateral normal integration.
@@ -154,18 +161,23 @@ def generate_dx_dy(
     nz_bottom = nz_vertical[has_bottom[mask]]
 
     def create_derivative_matrix(
-        nz_values: torch.Tensor, has_mask: torch.Tensor, move_fn, reverse_order: bool = False
+        nz_values: torch.Tensor,
+        has_mask: torch.Tensor,
+        move_fn,
+        reverse_order: bool = False,
     ) -> torch.sparse.Tensor:
         """Helper to create derivative matrix in CSR format"""
         data = torch.stack([-nz_values / step_size, nz_values / step_size], -1).flatten()
 
         if reverse_order:
             indices = torch.stack(
-                [pixel_idx[move_fn(has_mask)].flatten(), pixel_idx[has_mask].flatten()], -1
+                [pixel_idx[move_fn(has_mask)].flatten(), pixel_idx[has_mask].flatten()],
+                -1,
             ).flatten()
         else:
             indices = torch.stack(
-                [pixel_idx[has_mask].flatten(), pixel_idx[move_fn(has_mask)].flatten()], -1
+                [pixel_idx[has_mask].flatten(), pixel_idx[move_fn(has_mask)].flatten()],
+                -1,
             ).flatten()
 
         indptr = torch.cat(
@@ -298,7 +310,7 @@ def bilateral_normal_integration(
         depth_mask: [H,W] if provided
     """
     device = normal_map.device
-    if device.type == 'cpu' and not torch.backends.mkl.is_available():
+    if device.type == "cpu" and not torch.backends.mkl.is_available():
         raise RuntimeError(
             "Bilateral normal integration requires either CUDA or MKL support for efficient "
             "sparse matrix operations. Your PyTorch installation doesn't have MKL support "
@@ -344,7 +356,9 @@ def bilateral_normal_integration(
     if K is not None:
         H, W = normal_mask.shape
         yy, xx = torch.meshgrid(
-            torch.arange(H, device=device), torch.arange(W, device=device), indexing="ij"
+            torch.arange(H, device=device),
+            torch.arange(W, device=device),
+            indexing="ij",
         )
         xx = torch.flip(xx, [0])
 
@@ -363,84 +377,203 @@ def bilateral_normal_integration(
     # Generate sparse matrices
     A3, A4, A1, A2 = generate_dx_dy(normal_mask, nz_v, nz_u, step_size)
 
-    # Convert to COO and get indices/values
-    num_rows = A1.shape[0]
-    indices = torch.cat([
-        torch.stack([A1.to_sparse_coo().indices()[0], A1.to_sparse_coo().indices()[1]]),
-        torch.stack([A2.to_sparse_coo().indices()[0] + num_rows, A2.to_sparse_coo().indices()[1]]),
-        torch.stack([A3.to_sparse_coo().indices()[0] + 2*num_rows, A3.to_sparse_coo().indices()[1]]),
-        torch.stack([A4.to_sparse_coo().indices()[0] + 3*num_rows, A4.to_sparse_coo().indices()[1]])
-    ], dim=1)
-    
-    values = torch.cat([A1.values(), A2.values(), A3.values(), A4.values()])
-    
-    # Create combined sparse matrix and convert to CSR
-    A = torch.sparse_coo_tensor(
-        indices=indices,
-        values=values,
-        size=(4*num_rows, A1.shape[1]),
-        device=A1.device,
-        dtype=normal_map.dtype
-    ).to_sparse_csr()
+    # Logic copied directly from original cupy implementation
+    pixel_idx = torch.zeros_like(normal_mask, dtype=int, device=normal_mask.device)
+    pixel_idx[normal_mask] = torch.arange(num_normals, device=normal_mask.device)
+    pixel_idx_flat = torch.arange(num_normals, device=normal_mask.device)
+    pixel_idx_flat_indptr = torch.arange(num_normals + 1, device=normal_mask.device)
 
-    b = torch.cat([-nx, -nx, -ny, -ny])
+    has_left_mask = torch.logical_and(move_mask(normal_mask, "right"), normal_mask)
+    has_left_mask_left = move_mask(has_left_mask, "left")
+    has_right_mask = torch.logical_and(move_mask(normal_mask, "left"), normal_mask)
+    has_right_mask_right = move_mask(has_right_mask, "right")
+    has_bottom_mask = torch.logical_and(move_mask(normal_mask, "top"), normal_mask)
+    has_bottom_mask_bottom = move_mask(has_bottom_mask, "bottom")
+    has_top_mask = torch.logical_and(move_mask(normal_mask, "bottom"), normal_mask)
+    has_top_mask_top = move_mask(has_top_mask, "top")
 
-    # Initialize W
-    W = sparse.spdiags(
-        0.5 * torch.ones(4 * num_normals, device=device, dtype=normal_map.dtype),
-        torch.tensor([0], device=device),
-        (4 * num_normals, 4 * num_normals),
-    ).coalesce()
+    has_left_mask_flat = has_left_mask[normal_mask]
+    has_right_mask_flat = has_right_mask[normal_mask]
+    has_bottom_mask_flat = has_bottom_mask[normal_mask]
+    has_top_mask_flat = has_top_mask[normal_mask]
 
-    z = torch.zeros(num_normals, device=device, dtype=normal_map.dtype)
-    energy = (A @ z - b).T @ (W @ (A @ z - b))
+    has_left_mask_left_flat = has_left_mask_left[normal_mask]
+    has_right_mask_right_flat = has_right_mask_right[normal_mask]
+    has_bottom_mask_bottom_flat = has_bottom_mask_bottom[normal_mask]
+    has_top_mask_top_flat = has_top_mask_top[normal_mask]
+
+    nz_left_square = nz_v[has_left_mask_flat] ** 2
+    nz_right_square = nz_v[has_right_mask_flat] ** 2
+    nz_top_square = nz_u[has_top_mask_flat] ** 2
+    nz_bottom_square = nz_u[has_bottom_mask_flat] ** 2
+
+    pixel_idx_left_center = pixel_idx[has_left_mask]
+    pixel_idx_right_right = pixel_idx[has_right_mask_right]
+    pixel_idx_top_center = pixel_idx[has_top_mask]
+    pixel_idx_bottom_bottom = pixel_idx[has_bottom_mask_bottom]
+
+    pixel_idx_left_left_indptr = torch.concatenate(
+        [
+            torch.tensor([0], device=normal_map.device),
+            torch.cumsum(has_left_mask_left_flat, 0),
+        ]
+    )
+    pixel_idx_right_center_indptr = torch.concatenate(
+        [
+            torch.tensor([0], device=normal_map.device),
+            torch.cumsum(has_right_mask_flat, 0),
+        ]
+    )
+    pixel_idx_top_top_indptr = torch.concatenate(
+        [
+            torch.tensor([0], device=normal_map.device),
+            torch.cumsum(has_top_mask_top_flat, 0),
+        ]
+    )
+    pixel_idx_bottom_center_indptr = torch.concatenate(
+        [
+            torch.tensor([0], device=normal_map.device),
+            torch.cumsum(has_bottom_mask_flat, 0),
+        ]
+    )
+
+    wu = 0.5 * torch.ones(num_normals, dtype=normal_map.dtype, device=normal_mask.device)
+    wv = 0.5 * torch.ones(num_normals, dtype=normal_map.dtype, device=normal_mask.device)
+    z = torch.zeros(num_normals, dtype=normal_map.dtype, device=normal_mask.device)
+    energy = (
+        torch.sum(wu * (torch.matmul(A1, z) + nx) ** 2)
+        + torch.sum((1 - wu) * (torch.matmul(A2, z) + nx) ** 2)
+        + torch.sum(wv * (torch.matmul(A3, z) + ny) ** 2)
+        + torch.sum((1 - wv) * (torch.matmul(A4, z) + ny) ** 2)
+    )
 
     if depth_map is not None:
-        m = depth_mask[normal_mask].float()
-        M = sparse.spdiags(m, torch.tensor([0], device=device), num_normals, num_normals).coalesce()
+        depth_mask_flat = depth_mask[normal_mask].astype(bool)
         z_prior = torch.log(depth_map)[normal_mask] if K is not None else depth_map[normal_mask]
+        z_prior[~depth_mask_flat] = 0
+    # /copied logic
+
+    tic = time.time()
 
     energy_list = []
-    for i in range(max_iter):
-        WA = W @ A
-        A_mat = A.t() @ WA
-        b_vec = A.t() @ (W @ b)
+    pbar = tqdm(range(max_iter))
+    for i in pbar:
+        data_term_top = wu[has_top_mask_flat] * nz_top_square
+        data_term_bottom = (1 - wu[has_bottom_mask_flat]) * nz_bottom_square
+        data_term_left = (1 - wv[has_left_mask_flat]) * nz_left_square
+        data_term_right = wv[has_right_mask_flat] * nz_right_square
+
+        diagonal_data_term = torch.zeros(
+            num_normals, device=normal_mask.device, dtype=normal_map.dtype
+        )
+        diagonal_data_term[has_left_mask_flat] += data_term_left
+        diagonal_data_term[has_left_mask_left_flat] += data_term_left
+        diagonal_data_term[has_right_mask_flat] += data_term_right
+        diagonal_data_term[has_right_mask_right_flat] += data_term_right
+        diagonal_data_term[has_top_mask_flat] += data_term_top
+        diagonal_data_term[has_top_mask_top_flat] += data_term_top
+        diagonal_data_term[has_bottom_mask_flat] += data_term_bottom
+        diagonal_data_term[has_bottom_mask_bottom_flat] += data_term_bottom
+        if depth_map is not None:
+            diagonal_data_term[depth_mask_flat] += lambda1
+
+        A_mat_d = torch.sparse_csr_tensor(
+            crow_indices=pixel_idx_flat_indptr,
+            col_indices=pixel_idx_flat,
+            values=diagonal_data_term,
+            size=(num_normals, num_normals),
+        )
+        A_mat_left_odu = torch.sparse_csr_tensor(
+            crow_indices=pixel_idx_left_left_indptr,
+            col_indices=pixel_idx_left_center,
+            values=-data_term_left,
+            size=(num_normals, num_normals),
+        )
+        A_mat_right_odu = torch.sparse_csr_tensor(
+            crow_indices=pixel_idx_right_center_indptr,
+            col_indices=pixel_idx_right_right,
+            values=-data_term_right,
+            size=(num_normals, num_normals),
+        )
+        A_mat_top_odu = torch.sparse_csr_tensor(
+            crow_indices=pixel_idx_top_top_indptr,
+            col_indices=pixel_idx_top_center,
+            values=-data_term_top,
+            size=(num_normals, num_normals),
+        )
+        A_mat_bottom_odu = torch.sparse_csr_tensor(
+            crow_indices=pixel_idx_bottom_center_indptr,
+            col_indices=pixel_idx_bottom_bottom,
+            values=-data_term_bottom,
+            size=(num_normals, num_normals),
+        )
+        A_mat_odu = A_mat_top_odu + A_mat_bottom_odu + A_mat_right_odu + A_mat_left_odu
+        A_mat = A_mat_d + A_mat_odu
+        A_mat = (
+            A_mat + A_mat_odu.t().to_sparse_csr()
+        )  # diagnol + upper triangle + lower triangle matrix
+
+        D = (
+            # TODO: This is a bottleneck, see https://github.com/pytorch/pytorch/issues/104981
+            sparse.spdiags(
+                1 / torch.clamp(diagonal_data_term, min=1e-5).cpu(),
+                torch.tensor([0], device="cpu"),
+                (num_normals, num_normals),
+            )
+            .to(normal_mask.device)
+            .coalesce()
+        )
+        b_vec = (
+            A1.t() @ (wu * (-nx))
+            + A2.t() @ ((1 - wu) * (-nx))
+            + A3.t() @ (wv * (-ny))
+            + A4.t() @ ((1 - wv) * (-ny))
+        )
 
         if depth_map is not None:
-            depth_diff = M @ (z_prior - z)
-            depth_diff[depth_diff == 0] = float("nan")
-            offset = torch.nanmean(depth_diff)
-            z += offset
-            A_mat = (A_mat + lambda1 * M).coalesce()
-            b_vec += lambda1 * M @ z_prior
-
-        D = sparse.spdiags(
-            1 / torch.clamp(A_mat.values(), min=1e-5),
-            torch.tensor([0], device=device),
-            num_normals,
-            num_normals,
-        ).coalesce()
+            b_vec += lambda1 * z_prior
+            offset = torch.mean((z_prior - z)[depth_mask_flat])
+            z = z + offset
 
         z, _ = conjugate_gradient_solver(A_mat, b_vec, cg_max_iter, z, D, rtol=cg_rtol)
+        del A_mat, b_vec, wu, wv
 
         # Update weights
         wu = torch.sigmoid(k * ((A2 @ z) ** 2 - (A1 @ z) ** 2))
         wv = torch.sigmoid(k * ((A4 @ z) ** 2 - (A3 @ z) ** 2))
-        W = sparse.spdiags(
-            torch.cat((wu, 1 - wu, wv, 1 - wv)),
-            torch.tensor([0], device=device),
-            (4 * num_normals, 4 * num_normals),
-        ).coalesce()
+        W = (
+            # TODO: This is a bottleneck, see https://github.com/pytorch/pytorch/issues/104981
+            sparse.spdiags(
+                torch.cat((wu, 1 - wu, wv, 1 - wv)).cpu(),
+                torch.tensor([0], device="cpu"),
+                (4 * num_normals, 4 * num_normals),
+            )
+            .to(normal_mask.device)
+            .coalesce()
+        )
 
         energy_old = energy
-        energy = (A @ z - b).T @ (W @ (A @ z - b))
+        energy = (
+            torch.sum(wu * (torch.matmul(A1, z) + nx) ** 2)
+            + torch.sum((1 - wu) * (torch.matmul(A2, z) + nx) ** 2)
+            + torch.sum(wv * (torch.matmul(A3, z) + ny) ** 2)
+            + torch.sum((1 - wv) * (torch.matmul(A4, z) + ny) ** 2)
+        )
         energy_list.append(energy)
 
-        if torch.abs(energy - energy_old) / energy_old < tol:
+        relative_energy = torch.abs(energy - energy_old) / energy_old
+        pbar.set_description(
+            f"step {i + 1}/{max_iter} energy: {energy:.3f} relative energy: {relative_energy:.3e}"
+        )
+        if relative_energy < tol:
             break
+    del A1, A2, A3, A4, nx, ny
+
+    toc = time.time()
+    print(f"Total time: {toc - tic} seconds")
 
     # Reconstruct outputs in [H,W] format
-    depth_map_out = torch.full_like(normal_mask, float("nan"), dtype=torch.float32)
+    depth_map_out = torch.full_like(normal_mask, float("nan"), dtype=normal_map.dtype)
     depth_map_out[normal_mask] = z
 
     if K is not None:
@@ -452,14 +585,14 @@ def bilateral_normal_integration(
         )
 
     facets = construct_facets_from(normal_mask)
-    if normal_map[2].mean() < 0:
+    if nz.mean() > 0:
         facets = facets[:, [0, 1, 4, 3, 2]]
 
     # Weight maps in [H,W] format
-    wu_map = torch.full_like(normal_mask, float("nan"), dtype=torch.float32)
+    wu_map = torch.full_like(normal_mask, float("nan"), dtype=normal_map.dtype)
     wu_map[normal_mask] = wv
 
-    wv_map = torch.full_like(normal_mask, float("nan"), dtype=torch.float32)
+    wv_map = torch.full_like(normal_mask, float("nan"), dtype=normal_map.dtype)
     wv_map[normal_mask] = wu
 
     return depth_map_out, (vertices, facets), wu_map, wv_map, energy_list
