@@ -262,25 +262,23 @@ def map_depth_map_to_point_clouds(
     H, W = mask.shape
 
     # Create coordinate grid
-    yy, xx = torch.meshgrid(
-        torch.arange(H, device=device),  # H dimension first
-        torch.arange(W, device=device),  # W dimension second
-        indexing="ij",  # Important: use 'ij' for matrix indexing
-    )
+    xx = torch.arange(H - 1, -1, -1, device=device)[:, None].expand(H, W)
+    yy = torch.arange(W, device=device)[None, :].expand(H, W)
 
     if K is None:
         vertices = torch.zeros((3, H, W), device=device)  # [3,H,W]
         vertices[0] = xx * step_size  # X coordinates
         vertices[1] = yy * step_size  # Y coordinates
         vertices[2] = depth_map  # Z coordinates
-        vertices = vertices[:, mask].t()  # [N,3]
+        vertices = vertices.permute(1, 2, 0)[mask]  # [H,W,3] then [N,3]
     else:
         u = torch.zeros((3, H, W), device=device)  # [3,H,W]
         u[0] = xx  # X pixel coordinates
         u[1] = yy  # Y pixel coordinates
         u[2] = 1  # Homogeneous coordinates
-        u = u[:, mask]  # [3,N]
-        K_inv = torch.inverse(K).to(device)
+        u = u.reshape(3, -1)  # [3,H*W]
+        u = u[:, mask.reshape(-1)]  # [3,N]
+        K_inv = torch.linalg.inv_ex(K).to(device)
         vertices = (K_inv @ u).t() * depth_map[mask, None]  # [N,3]
 
     return vertices

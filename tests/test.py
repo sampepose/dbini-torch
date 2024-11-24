@@ -252,5 +252,110 @@ def test_generate_dx_dy_additional_patterns():
             assert not torch.any(torch.isinf(mat.to_dense()))
 
 
+def test_point_cloud_mapping():
+    """Test point cloud mapping with various cases to prevent regressions"""
+    from dbini_torch.dbini import map_depth_map_to_point_clouds
+
+    test_cases = {
+        "basic_2x2": {
+            "depth": torch.ones(2, 2),
+            "mask": torch.ones(2, 2, dtype=torch.bool),
+            "step_size": 1.0,
+            "expected": torch.tensor(
+                [
+                    [1.0, 0.0, 1.0],  # Top-left
+                    [1.0, 1.0, 1.0],  # Top-right
+                    [0.0, 0.0, 1.0],  # Bottom-left
+                    [0.0, 1.0, 1.0],  # Bottom-right
+                ]
+            ),
+        },
+        "partial_mask": {
+            "depth": torch.ones(3, 3),
+            "mask": torch.tensor(
+                [
+                    [1, 0, 1],
+                    [0, 1, 0],
+                    [1, 0, 1],
+                ],
+                dtype=torch.bool,
+            ),
+            "step_size": 1.0,
+            "expected": torch.tensor(
+                [
+                    [2.0, 0.0, 1.0],  # Top corners
+                    [2.0, 2.0, 1.0],
+                    [1.0, 1.0, 1.0],  # Center
+                    [0.0, 0.0, 1.0],  # Bottom corners
+                    [0.0, 2.0, 1.0],
+                ]
+            ),
+        },
+        "varying_depth": {
+            "depth": torch.tensor(
+                [
+                    [1.0, 2.0],
+                    [3.0, 4.0],
+                ]
+            ),
+            "mask": torch.ones(2, 2, dtype=torch.bool),
+            "step_size": 1.0,
+            "expected": torch.tensor(
+                [
+                    [1.0, 0.0, 1.0],
+                    [1.0, 1.0, 2.0],
+                    [0.0, 0.0, 3.0],
+                    [0.0, 1.0, 4.0],
+                ]
+            ),
+        },
+        "step_size_2": {
+            "depth": torch.ones(2, 2),
+            "mask": torch.ones(2, 2, dtype=torch.bool),
+            "step_size": 2.0,
+            "expected": torch.tensor(
+                [
+                    [2.0, 0.0, 1.0],
+                    [2.0, 2.0, 1.0],
+                    [0.0, 0.0, 1.0],
+                    [0.0, 2.0, 1.0],
+                ]
+            ),
+        },
+        "single_point": {
+            "depth": torch.ones(3, 3),
+            "mask": torch.tensor(
+                [
+                    [0, 0, 0],
+                    [0, 1, 0],
+                    [0, 0, 0],
+                ],
+                dtype=torch.bool,
+            ),
+            "step_size": 1.0,
+            "expected": torch.tensor([[1.0, 1.0, 1.0]]),  # Center point
+        },
+        "empty_mask": {
+            "depth": torch.ones(2, 2),
+            "mask": torch.zeros(2, 2, dtype=torch.bool),
+            "step_size": 1.0,
+            "expected": torch.zeros(0, 3),  # Empty tensor with correct shape
+        },
+    }
+
+    for name, case in test_cases.items():
+        vertices = map_depth_map_to_point_clouds(
+            case["depth"], case["mask"], step_size=case["step_size"]
+        )
+        assert torch.allclose(vertices, case["expected"]), f"Failed on case: {name}"
+
+        # Additional shape checks
+        expected_points = case["mask"].sum().item()
+        assert vertices.shape == (
+            expected_points,
+            3,
+        ), f"Wrong shape for case {name}. Expected ({expected_points}, 3), got {vertices.shape}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
