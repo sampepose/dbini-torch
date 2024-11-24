@@ -212,12 +212,24 @@ def generate_dx_dy(
 
 def construct_facets_from(mask: torch.Tensor) -> torch.Tensor:
     """
-    Constructs mesh facets from a binary mask.
+    Constructs quadrilateral facets from a binary mask for mesh generation.
+
+    Each facet is defined by four vertices in counter-clockwise order:
+        v1 -- v4
+        |     |
+        v2 -- v3
+
+    The function identifies valid facets where all four corners are True in the mask.
+    Each facet is represented as [4, idx_v1, idx_v2, idx_v3, idx_v4] where:
+    - 4 indicates it's a quadrilateral
+    - idx_vN is the flattened index of vertex N in the point cloud
 
     Args:
-        mask: [H,W] binary mask
+        mask: Binary mask [H,W] indicating valid vertices
+
     Returns:
-        [N,5] facet indices where N is number of valid facets
+        facets: Tensor of shape [N,5] containing N valid facets
+               Each row is [4, top_left, bottom_left, bottom_right, top_right]
     """
     device = mask.device
     idx = torch.zeros_like(mask, dtype=torch.long, device=device)
@@ -251,12 +263,24 @@ def map_depth_map_to_point_clouds(
     step_size: float = 1,
 ) -> torch.Tensor:
     """
-    Maps depth values to 3D point coordinates.
-    Assumes inputs:
-        depth_map: [H,W]
-        mask: [H,W]
+    Maps depth values to 3D point coordinates in either orthographic or perspective projection.
+
+    Coordinate system:
+        y
+        |  z
+        | /
+        |/
+        o ---x
+
+    Args:
+        depth_map: Depth values [H,W]
+        mask: Binary mask indicating valid depth values [H,W]
+        K: Optional camera intrinsic matrix for perspective projection [3,3]
+        step_size: Pixel size in world coordinates for orthographic projection (default: 1)
+                  Only used when K is None
+
     Returns:
-        vertices: [N,3] where N is number of valid points
+        vertices: 3D point coordinates [N,3] where N is number of True values in mask
     """
     device = depth_map.device
     H, W = mask.shape
@@ -299,13 +323,29 @@ def bilateral_normal_integration(
     cg_rtol: float = 1e-3,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, float]:
     """
-    Performs bilateral normal integration.
+    Performs bilateral normal integration to reconstruct a depth map from surface normals.
 
-    Input formats:
-        normal_map: [3,H,W] - CHW format
-        normal_mask: [H,W]
-        depth_map: [H,W] if provided
-        depth_mask: [H,W] if provided
+    Args:
+        normal_map: Normal vectors in CHW format [3,H,W]
+        normal_mask: Binary mask indicating valid normal vectors [H,W]
+        k: Bilateral weight parameter (default: 2)
+        depth_map: Optional initial depth values [H,W]
+        depth_mask: Optional mask for depth values [H,W]
+        lambda1: Weight for depth regularization (default: 0)
+        K: Optional camera intrinsic matrix for perspective projection
+        step_size: Pixel size in world coordinates (default: 1)
+        max_iter: Maximum number of iterations (default: 150)
+        tol: Convergence tolerance for relative energy (default: 1e-4)
+        cg_max_iter: Maximum conjugate gradient iterations (default: 5000)
+        cg_rtol: Relative tolerance for conjugate gradient (default: 1e-3)
+
+    Returns:
+        Tuple containing:
+        - depth_map: Reconstructed depth values [H,W]
+        - surface: Tuple of (vertices [N,3], faces [M,5])
+        - wu_map: Horizontal bilateral weights [H,W]
+        - wv_map: Vertical bilateral weights [H,W]
+        - energy_list: List of energy values per iteration
     """
     device = normal_map.device
     if device.type == "cpu" and not torch.backends.mkl.is_available():
