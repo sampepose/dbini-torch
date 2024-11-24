@@ -14,6 +14,10 @@ def test_move_mask():
         "right": torch.tensor([[0, 1, 0], [0, 0, 1], [0, 1, 0]], dtype=torch.bool),
         "top": torch.tensor([[0, 1, 0], [1, 0, 1], [0, 0, 0]], dtype=torch.bool),
         "bottom": torch.tensor([[0, 0, 0], [1, 0, 1], [0, 1, 0]], dtype=torch.bool),
+        "top_left": torch.tensor([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=torch.bool),
+        "top_right": torch.tensor([[0, 0, 0], [0, 0, 1], [0, 1, 0]], dtype=torch.bool),
+        "bottom_left": torch.tensor([[0, 1, 0], [1, 0, 0], [0, 0, 0]], dtype=torch.bool),
+        "bottom_right": torch.tensor([[0, 1, 0], [0, 0, 1], [0, 0, 0]], dtype=torch.bool),
     }
 
     for direction, expected_result in expected.items():
@@ -33,6 +37,10 @@ def test_move_mask():
         "right": torch.tensor([[0, 1, 1], [0, 1, 1], [0, 1, 1]], dtype=torch.bool),
         "top": torch.tensor([[1, 1, 1], [1, 1, 1], [0, 0, 0]], dtype=torch.bool),
         "bottom": torch.tensor([[0, 0, 0], [1, 1, 1], [1, 1, 1]], dtype=torch.bool),
+        "top_left": torch.tensor([[1, 1, 1], [1, 1, 0], [1, 0, 0]], dtype=torch.bool),
+        "top_right": torch.tensor([[1, 1, 1], [0, 1, 1], [0, 0, 1]], dtype=torch.bool),
+        "bottom_left": torch.tensor([[1, 0, 0], [1, 1, 0], [1, 1, 1]], dtype=torch.bool),
+        "bottom_right": torch.tensor([[0, 0, 1], [0, 1, 1], [1, 1, 1]], dtype=torch.bool),
     }
 
     for direction, expected_result in expected_full.items():
@@ -48,6 +56,10 @@ def test_move_mask():
         "right": torch.tensor([[0, 0, 0], [0, 0, 1], [0, 0, 0]], dtype=torch.bool),
         "top": torch.tensor([[0, 1, 0], [0, 0, 0], [0, 0, 0]], dtype=torch.bool),
         "bottom": torch.tensor([[0, 0, 0], [0, 0, 0], [0, 1, 0]], dtype=torch.bool),
+        "top_left": torch.tensor([[1, 0, 0], [0, 0, 0], [0, 0, 0]], dtype=torch.bool),
+        "top_right": torch.tensor([[0, 0, 1], [0, 0, 0], [0, 0, 0]], dtype=torch.bool),
+        "bottom_left": torch.tensor([[0, 0, 0], [0, 0, 0], [1, 0, 0]], dtype=torch.bool),
+        "bottom_right": torch.tensor([[0, 0, 0], [0, 0, 0], [0, 0, 1]], dtype=torch.bool),
     }
 
     for direction, expected_result in expected_single.items():
