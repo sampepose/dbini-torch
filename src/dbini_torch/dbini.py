@@ -624,7 +624,7 @@ def bilateral_normal_integration(
             + torch.sum(wv * (torch.matmul(A3, z) + ny) ** 2)
             + torch.sum((1 - wv) * (torch.matmul(A4, z) + ny) ** 2)
         )
-        energy_list.append(energy)
+        energy_list.append(energy.cpu())
 
         relative_energy = torch.abs(energy - energy_old) / energy_old
         pbar.set_description(

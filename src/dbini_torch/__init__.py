@@ -6,4 +6,4 @@ __all__ = [
     "construct_facets_from"
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.0.2"
