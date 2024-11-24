@@ -367,7 +367,7 @@ def bilateral_normal_integration(
     if normal_mask.dim() != 2:
         raise ValueError(f"normal_mask must be 2D tensor [H,W], got shape {normal_mask.shape}")
 
-    # Mask input validation
+    # Normal mask input validation
     H, W = normal_mask.shape
     if normal_map.shape[1:] != (H, W):
         raise ValueError(
@@ -376,6 +376,36 @@ def bilateral_normal_integration(
         )
     if not normal_mask.dtype == torch.bool:
         raise ValueError(f"normal_mask must be boolean tensor, got {normal_mask.dtype}")
+
+    # Depth map input validation
+    if depth_map is not None:
+        if depth_map.dim() != 2:
+            raise ValueError(f"depth_map must be 2D tensor [H,W], got shape {depth_map.shape}")
+        if depth_map.shape != normal_mask.shape:
+            raise ValueError(
+                f"depth_map shape {depth_map.shape} "
+                f"must match normal_mask shape {normal_mask.shape}"
+            )
+        if depth_map.dtype != normal_map.dtype:
+            raise ValueError(
+                f"depth_map dtype {depth_map.dtype} "
+                f"must match normal_map dtype {normal_map.dtype}"
+            )
+
+    # Depth mask input validation
+    if depth_mask is not None:
+        H, W = depth_mask.shape
+        if depth_map.shape != depth_mask.shape:
+            raise ValueError(
+                f"depth_map shape {depth_map.shape} "
+                f"must match depth_mask shape {depth_mask.shape}"
+            )
+        if depth_mask.dtype != torch.bool:
+            raise ValueError(f"depth_mask must be boolean tensor, got {depth_mask.dtype}")
+
+    # Make sure both depth map and depth mask are provided or neither provided
+    if depth_map is None and depth_mask is not None:
+        raise ValueError("depth_map and depth_mask must both be provided or both be None")
 
     num_normals = normal_mask.sum().item()
     device = normal_map.device
@@ -483,7 +513,7 @@ def bilateral_normal_integration(
     )
 
     if depth_map is not None:
-        depth_mask_flat = depth_mask[normal_mask].astype(bool)
+        depth_mask_flat = depth_mask[normal_mask]
         z_prior = torch.log(depth_map)[normal_mask] if K is not None else depth_map[normal_mask]
         z_prior[~depth_mask_flat] = 0
     # /copied logic

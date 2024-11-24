@@ -313,5 +313,93 @@ def test_bilateral_normal_integration_parity(device, test_folder):
     ), "faces mismatch"
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_bilateral_normal_integration_with_depth(device):
+    """Test bilateral normal integration with initial depth map"""
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+
+    from xucao_bilateral_normal_integration.bilateral_normal_integration_numpy import (
+        bilateral_normal_integration as np_bni,
+    )
+
+    from dbini_torch.dbini import bilateral_normal_integration as pt_bni
+
+    # Create synthetic data
+    H, W = 32, 32
+    x = np.linspace(-1, 1, W)
+    y = np.linspace(-1, 1, H)
+    xx, yy = np.meshgrid(x, y)
+
+    # Create a hemisphere surface
+    r = np.sqrt(xx**2 + yy**2)
+    depth_map = np.sqrt(1 - np.minimum(r, 1) ** 2)
+    depth_map[r > 1] = 0
+
+    # Create corresponding normal map
+    dx = -xx / np.maximum(depth_map, 1e-6)
+    dy = -yy / np.maximum(depth_map, 1e-6)
+    normal_map = np.dstack([-dx, -dy, np.ones_like(dx)])
+    normal_map /= np.linalg.norm(normal_map, axis=2, keepdims=True)
+
+    # Create masks
+    mask = r <= 1
+    depth_mask = mask & (np.random.rand(H, W) < 0.3)  # Sparse depth samples
+
+    # Convert to PyTorch tensors
+    pt_normal_map = torch.from_numpy(normal_map).permute(2, 0, 1).to(device)
+    pt_mask = torch.from_numpy(mask).to(device)
+    pt_depth_map = torch.from_numpy(depth_map).to(device)
+    pt_depth_mask = torch.from_numpy(depth_mask).to(device)
+
+    # Parameters
+    k = 2.0
+    max_iter = 50
+    tol = 1e-4
+    lambda1 = 0.1
+
+    # Run both implementations
+    pt_depth_map, pt_surface, pt_wu_map, pt_wv_map, pt_energy_list = pt_bni(
+        normal_map=pt_normal_map,
+        normal_mask=pt_mask,
+        k=k,
+        depth_map=pt_depth_map,
+        depth_mask=pt_depth_mask,
+        lambda1=lambda1,
+        max_iter=max_iter,
+        tol=tol,
+    )
+
+    np_depth_map, np_surface, np_wu_map, np_wv_map, np_energy_list = np_bni(
+        normal_map=normal_map,
+        normal_mask=mask,
+        k=k,
+        depth_map=depth_map,
+        depth_mask=depth_mask,
+        lambda1=lambda1,
+        max_iter=max_iter,
+        tol=tol,
+    )
+
+    # Convert PyTorch outputs to NumPy for comparison
+    pt_depth_map = pt_depth_map.cpu().squeeze().numpy()
+    pt_wu_map = pt_wu_map.cpu().squeeze().numpy()
+    pt_wv_map = pt_wv_map.cpu().squeeze().numpy()
+    pt_energy_list = np.array(pt_energy_list)
+
+    assert np.allclose(np_depth_map, pt_depth_map, rtol=1e-5, equal_nan=True), "Depth map mismatch"
+    assert np.allclose(
+        np_energy_list, pt_energy_list, rtol=1e-5, equal_nan=True
+    ), "Energy list mismatch"
+    assert np.allclose(np_wu_map, pt_wu_map, rtol=1e-5, equal_nan=True), "Wu map mismatch"
+    assert np.allclose(np_wv_map, pt_wv_map, rtol=1e-5, equal_nan=True), "Wv map mismatch"
+    assert np.allclose(
+        np_surface[0], pt_surface[0].cpu().numpy(), rtol=1e-5, equal_nan=True
+    ), "vertices mismatch"
+    assert np.allclose(
+        np_surface[1], pt_surface[1].cpu().numpy(), rtol=1e-5, equal_nan=True
+    ), "faces mismatch"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
