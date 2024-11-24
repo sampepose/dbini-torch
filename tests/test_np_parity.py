@@ -290,12 +290,12 @@ def test_bilateral_normal_integration_parity(device):
     pt_energy_list = np.array(pt_energy_list)
 
     # Compare results
-    assert np.allclose(np_depth_map, pt_depth_map, rtol=1e-5), "Depth map mismatch"
-    assert np.allclose(np_energy_list, pt_energy_list, rtol=1e-5), "Energy list mismatch"
-    assert np.allclose(np_wu_map, pt_wu_map, rtol=1e-5), "Wu map mismatch"
-    assert np.allclose(np_wv_map, pt_wv_map, rtol=1e-5), "Wv map mismatch"
-    assert np.allclose(np_surface[0], pt_surface[0].cpu().numpy(), rtol=1e-5), "vertices mismatch"
-    assert np.allclose(np_surface[1], pt_surface[1].cpu().numpy(), rtol=1e-5), "faces mismatch"
+    assert np.allclose(np_depth_map, pt_depth_map, rtol=1e-5, equal_nan=True), "Depth map mismatch"
+    assert np.allclose(np_energy_list, pt_energy_list, rtol=1e-5, equal_nan=True), "Energy list mismatch"
+    assert np.allclose(np_wu_map, pt_wu_map, rtol=1e-5, equal_nan=True), "Wu map mismatch"
+    assert np.allclose(np_wv_map, pt_wv_map, rtol=1e-5, equal_nan=True), "Wv map mismatch"
+    assert np.allclose(np_surface[0], pt_surface[0].cpu().numpy(), rtol=1e-5, equal_nan=True), "vertices mismatch"
+    assert np.allclose(np_surface[1], pt_surface[1].cpu().numpy(), rtol=1e-5, equal_nan=True), "faces mismatch"
 
 
 if __name__ == "__main__":

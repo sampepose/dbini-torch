@@ -284,7 +284,7 @@ def bilateral_normal_integration(normal_map,
 
         # ml = smoothed_aggregation_solver(A_mat, max_levels=4)  # AMG preconditioner, not very stable but faster than Jacob preconditioner.
         # D = ml.aspreconditioner(cycle='W')
-        z, _ = cg(A_mat, b_vec, x0=z, M=D, maxiter=cg_max_iter, tol=cg_tol)
+        z, _ = cg(A_mat, b_vec, x0=z, M=D, maxiter=cg_max_iter, rtol=cg_tol)
 
         # Update the weight matrices
         wu = sigmoid((A2 @ z) ** 2 - (A1 @ z) ** 2, k)
