@@ -36,6 +36,10 @@ test = [
     "pytest",
     "pytest-github-actions-annotate-failures",
     "shellcheck-py",
+    "numpy",
+    "scipy",
+    "tqdm",
+    "opencv-python",
 ]
 
 [tool.ruff]
