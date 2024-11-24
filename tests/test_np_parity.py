@@ -234,12 +234,13 @@ def test_generate_dx_dy_special_values(test_case):
         {pt_mat.to_dense().numpy()}
         """
 
+
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_bilateral_normal_integration_parity(device):
     """Test bilateral_normal_integration against NumPy reference implementation"""
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA not available")
-    
+
     import os
 
     import cv2
@@ -291,11 +292,17 @@ def test_bilateral_normal_integration_parity(device):
 
     # Compare results
     assert np.allclose(np_depth_map, pt_depth_map, rtol=1e-5, equal_nan=True), "Depth map mismatch"
-    assert np.allclose(np_energy_list, pt_energy_list, rtol=1e-5, equal_nan=True), "Energy list mismatch"
+    assert np.allclose(
+        np_energy_list, pt_energy_list, rtol=1e-5, equal_nan=True
+    ), "Energy list mismatch"
     assert np.allclose(np_wu_map, pt_wu_map, rtol=1e-5, equal_nan=True), "Wu map mismatch"
     assert np.allclose(np_wv_map, pt_wv_map, rtol=1e-5, equal_nan=True), "Wv map mismatch"
-    assert np.allclose(np_surface[0], pt_surface[0].cpu().numpy(), rtol=1e-5, equal_nan=True), "vertices mismatch"
-    assert np.allclose(np_surface[1], pt_surface[1].cpu().numpy(), rtol=1e-5, equal_nan=True), "faces mismatch"
+    assert np.allclose(
+        np_surface[0], pt_surface[0].cpu().numpy(), rtol=1e-5, equal_nan=True
+    ), "vertices mismatch"
+    assert np.allclose(
+        np_surface[1], pt_surface[1].cpu().numpy(), rtol=1e-5, equal_nan=True
+    ), "faces mismatch"
 
 
 if __name__ == "__main__":
