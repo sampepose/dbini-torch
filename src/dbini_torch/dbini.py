@@ -272,14 +272,14 @@ def map_depth_map_to_point_clouds(
         vertices[2] = depth_map  # Z coordinates
         vertices = vertices.permute(1, 2, 0)[mask]  # [H,W,3] then [N,3]
     else:
-        u = torch.zeros((3, H, W), device=device)  # [3,H,W]
+        u = torch.zeros((3, H, W), device=device, dtype=depth_map.dtype)  # [3,H,W]
         u[0] = xx  # X pixel coordinates
         u[1] = yy  # Y pixel coordinates
         u[2] = 1  # Homogeneous coordinates
         u = u.reshape(3, -1)  # [3,H*W]
         u = u[:, mask.reshape(-1)]  # [3,N]
-        K_inv = torch.linalg.inv_ex(K).to(device)
-        vertices = (K_inv @ u).t() * depth_map[mask, None]  # [N,3]
+        K_inv = torch.linalg.inv_ex(K.type(depth_map.dtype))[0].to(device)
+        vertices = (K_inv @ u).t() * depth_map[mask].unsqueeze(-1)  # [N,3]
 
     return vertices
 
@@ -352,13 +352,10 @@ def bilateral_normal_integration(
     nz = -normal_map[2][normal_mask]  # z-channel
 
     if K is not None:
+        # Create coordinate grid
         H, W = normal_mask.shape
-        yy, xx = torch.meshgrid(
-            torch.arange(H, device=device),
-            torch.arange(W, device=device),
-            indexing="ij",
-        )
-        xx = torch.flip(xx, [0])
+        xx = torch.arange(H - 1, -1, -1, device=device)[:, None].expand(H, W)
+        yy = torch.arange(W, device=device)[None, :].expand(H, W)
 
         cx, cy = K[0, 2].item(), K[1, 2].item()
         fx, fy = K[0, 0].item(), K[1, 1].item()

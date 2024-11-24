@@ -236,7 +236,8 @@ def test_generate_dx_dy_special_values(test_case):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_bilateral_normal_integration_parity(device):
+@pytest.mark.parametrize("test_folder", ["person", "bunny", "reading", "thinker"])
+def test_bilateral_normal_integration_parity(device, test_folder):
     """Test bilateral_normal_integration against NumPy reference implementation"""
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA not available")
@@ -256,7 +257,7 @@ def test_bilateral_normal_integration_parity(device):
     tol = 1e-4
 
     # Load test data
-    data_dir = os.path.join(os.path.dirname(__file__), "data/person")
+    data_dir = os.path.join(os.path.dirname(__file__), f"data/{test_folder}")
 
     # Load inputs
     normal_map = cv2.cvtColor(
@@ -270,18 +271,25 @@ def test_bilateral_normal_integration_parity(device):
 
     mask = cv2.imread(os.path.join(data_dir, "mask.png"), cv2.IMREAD_GRAYSCALE).astype(bool)
 
+    # Check for camera matrix
+    K = None
+    K_path = os.path.join(data_dir, "K.txt")
+    if os.path.exists(K_path):
+        K = np.loadtxt(K_path)
+
     # Convert inputs to PyTorch tensors
     pt_normal_map = torch.from_numpy(normal_map).permute(2, 0, 1).to(device)
     pt_mask = torch.from_numpy(mask).to(device)
+    pt_K = torch.from_numpy(K).to(device) if K is not None else None
 
     # Run PyTorch implementation
     pt_depth_map, pt_surface, pt_wu_map, pt_wv_map, pt_energy_list = pt_bni(
-        normal_map=pt_normal_map, normal_mask=pt_mask, k=k, max_iter=max_iter, tol=tol
+        normal_map=pt_normal_map, normal_mask=pt_mask, k=k, max_iter=max_iter, tol=tol, K=pt_K
     )
 
     # Run NumPy implementation
     np_depth_map, np_surface, np_wu_map, np_wv_map, np_energy_list = np_bni(
-        normal_map=normal_map, normal_mask=mask, k=k, max_iter=max_iter, tol=tol
+        normal_map=normal_map, normal_mask=mask, k=k, max_iter=max_iter, tol=tol, K=K
     )
 
     # Convert PyTorch outputs to NumPy for comparison
