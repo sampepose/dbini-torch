@@ -261,6 +261,7 @@ def map_depth_map_to_point_clouds(
     mask: torch.Tensor,
     K: Optional[torch.Tensor] = None,
     step_size: float = 1,
+    flip_coordinate_system: bool = False
 ) -> torch.Tensor:
     """
     Maps depth values to 3D point coordinates in either orthographic or perspective projection.
@@ -286,8 +287,12 @@ def map_depth_map_to_point_clouds(
     H, W = mask.shape
 
     # Create coordinate grid
-    xx = torch.arange(H - 1, -1, -1, device=device)[:, None].expand(H, W)
-    yy = torch.arange(W, device=device)[None, :].expand(H, W)
+    if not flip_coordinate_system:
+        xx = torch.arange(H - 1, -1, -1, device=device)[:, None].expand(H, W)
+        yy = torch.arange(W, device=device)[None, :].expand(H, W)
+    else:
+        xx = torch.arange(W, device=device)[None, :].expand(H, W)
+        yy = torch.arange(H, device=device)[:, None].expand(H, W)
 
     if K is None:
         vertices = torch.zeros((3, H, W), device=device)  # [3,H,W]
