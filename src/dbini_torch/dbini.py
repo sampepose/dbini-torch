@@ -326,6 +326,7 @@ def bilateral_normal_integration(
     tol: float = 1e-4,
     cg_max_iter: int = 5000,
     cg_rtol: float = 1e-3,
+    flip_coordinate_system: bool = False
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, float]:
     """
     Performs bilateral normal integration to reconstruct a depth map from surface normals.
@@ -343,6 +344,7 @@ def bilateral_normal_integration(
         tol: Convergence tolerance for relative energy (default: 1e-4)
         cg_max_iter: Maximum conjugate gradient iterations (default: 5000)
         cg_rtol: Relative tolerance for conjugate gradient (default: 1e-3)
+        flip_coordinate_system: Whether to flip the coordinate system for mapping depth map to point clouds (default: False)
 
     Returns:
         Tuple containing:
@@ -648,10 +650,10 @@ def bilateral_normal_integration(
 
     if K is not None:
         depth_map_out = torch.exp(depth_map_out)
-        vertices = map_depth_map_to_point_clouds(depth_map_out, normal_mask, K=K)
+        vertices = map_depth_map_to_point_clouds(depth_map_out, normal_mask, K=K, flip_coordinate_system=flip_coordinate_system)
     else:
         vertices = map_depth_map_to_point_clouds(
-            depth_map_out, normal_mask, K=None, step_size=step_size
+            depth_map_out, normal_mask, K=None, step_size=step_size, flip_coordinate_system=flip_coordinate_system
         )
 
     facets = construct_facets_from(normal_mask)
